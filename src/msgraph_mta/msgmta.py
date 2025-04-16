@@ -33,7 +33,6 @@ SCOPES = ["https://graph.microsoft.com/.default"]
 VERBOSE = False
 
 
-
 def vprint(*args, **kwargs):
     """
     print if verbose
@@ -82,8 +81,10 @@ def parse_email_message(raw_data):
     to_addrs = msg.get_all("To", [])
     cc_addrs = msg.get_all("Cc", [])
     bcc_addrs = msg.get_all("Bcc", [])
+    assert not bcc_addrs, "must implement bcc handling"
 
-    # Microsoft Graph does not support BCC directly — skip it or handle differently
+    # Microsoft Graph does not support BCC directly
+    # — skip it or handle differently
 
     recipients = fmt_recipients(to_addrs + cc_addrs)
 
@@ -94,10 +95,16 @@ def parse_email_message(raw_data):
     if msg.is_multipart():
         for part in msg.walk():
             if part.get_content_type() == "text/plain":
-                content = part.get_payload(decode=True).decode(part.get_content_charset("utf-8"))
+                content = (
+                    part.get_payload(decode=True)
+                    .decode(part.get_content_charset("utf-8"))
+                )
                 break
     else:
-        content = msg.get_payload(decode=True).decode(msg.get_content_charset("utf-8"))
+        content = (
+            msg.get_payload(decode=True)
+            .decode(msg.get_content_charset("utf-8"))
+        )
 
     return subject, recipients, content_type, content
 
@@ -130,7 +137,8 @@ def send_mail(token, sender, subject, recipients, content_type, content):
     )
 
     if not response.ok:
-        raise Exception(f"Graph sendMail failed: {response.status_code} {response.text}")
+        raise Exception(
+            f"Graph sendMail failed: {response.status_code} {response.text}")
 
     logger.info("Message sent successfully")
 
@@ -140,7 +148,6 @@ def mk_parser():
     description = "no description given"
     default_cfg = str(Path.home() / ".config" / "msgmta.json")
     default_cfg = os.environ.get("MSGMTA_CONFIG", default_cfg)
-    CONFIG_FILE = Path("secrets.json")
 
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument(
@@ -191,7 +198,6 @@ def main():
         content_type=content_type,
         content=content
     )
-
 
 
 if __name__ == '__main__':

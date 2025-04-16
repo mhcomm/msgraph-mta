@@ -7,13 +7,21 @@ import pytest
 
 import msgraph_mta.msgmta
 
+
 def mk_args(*args):
+    """
+    make sys.argv arguments
+    """
     newargs = [
         str(Path(msgraph_mta.msgmta.__file__).resolve())
     ] + list(args)
     return newargs
 
+
 def test_show_help(capsys):
+    """
+    can help be displayed
+    """
     newargs = mk_args("-h")
     print(f"{newargs}")
     with patch.object(sys, "argv", newargs):
@@ -23,5 +31,3 @@ def test_show_help(capsys):
         with capsys.disabled():
             print(captured)
         assert "usage: msgmta" in captured
-
-
