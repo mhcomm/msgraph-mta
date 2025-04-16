@@ -30,10 +30,22 @@ logger = logging.getLogger(__name__)
 # CONFIG_FILE = Path.home() / ".msgraph-sendmail.json"
 GRAPH_ENDPOINT = "https://graph.microsoft.com/v1.0"
 SCOPES = ["https://graph.microsoft.com/.default"]
+VERBOSE = False
 
 
-def load_config():
-    with open(CONFIG_FILE, encoding="utf-8") as fin:
+
+def vprint(*args, **kwargs):
+    """
+    print if verbose
+    """
+    if not VERBOSE:
+        return
+    print(*args, **kwargs)
+
+
+def load_config(configfile):
+    cfg_path = Path(configfile)
+    with cfg_path.open() as fin:
         data = json.load(fin)
         entry = data["default"]
         return {
@@ -57,6 +69,13 @@ def get_access_token(config):
     return result["access_token"]
 
 
+def fmt_recipients(recipients):
+    return [
+        {"emailAddress": {"address": addr.strip()}}
+        for addr in recipients
+    ]
+
+
 def parse_email_message(raw_data):
     msg = email.message_from_string(raw_data)
 
@@ -66,8 +85,7 @@ def parse_email_message(raw_data):
 
     # Microsoft Graph does not support BCC directly — skip it or handle differently
 
-    recipients = [{"emailAddress": {"address": addr.strip()}}
-                  for addr in to_addrs + cc_addrs]
+    recipients = fmt_recipients(to_addrs + cc_addrs)
 
     subject = msg.get("Subject", "")
     content_type = "text/plain"
@@ -131,24 +149,35 @@ def mk_parser():
         default=default_cfg,
         help="config file to read from: default=%(default)s",
     )
+    parser.add_argument(
+        '--verbose',
+        '-v',
+        action="store_true",
+        help="be a little more verbose",
+    )
     parser.add_argument('--subject', '-s', default="no subject")
     parser.add_argument('recipients', nargs='*')
     return parser
 
 
 def main():
+    global VERBOSE
     options = mk_parser().parse_args()
+    VERBOSE = options.verbose
+
     raw_email = sys.stdin.read()
-    config = load_config()
+    cfg_path = Path(options.config)
+    config = load_config(cfg_path)
     token = get_access_token(config)
+
     subject, recipients, content_type, content = parse_email_message(raw_email)
-    print(f"parsed: {(subject, recipients, content_type, content)}")
+    vprint(f"parsed: {(subject, recipients, content_type, content)}")
 
     recipients = recipients or []
-    recipients.extend(options.recipients)
+    recipients.extend(fmt_recipients(options.recipients))
     subject = subject or options.subject
-    print(f"{recipients=}")
-    print(f"{subject=}")
+    vprint(f"{recipients=}")
+    vprint(f"{subject=}")
 
     if not recipients:
         logger.error("No recipients found in email headers")
