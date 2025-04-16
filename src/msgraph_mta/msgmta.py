@@ -28,7 +28,6 @@ from msal import ConfidentialClientApplication
 
 logger = logging.getLogger(__name__)
 # CONFIG_FILE = Path.home() / ".msgraph-sendmail.json"
-CONFIG_FILE = Path("secrets.json")
 GRAPH_ENDPOINT = "https://graph.microsoft.com/v1.0"
 SCOPES = ["https://graph.microsoft.com/.default"]
 
@@ -36,7 +35,7 @@ SCOPES = ["https://graph.microsoft.com/.default"]
 def load_config():
     with open(CONFIG_FILE, encoding="utf-8") as fin:
         data = json.load(fin)
-        entry = data["lna1"]
+        entry = data["default"]
         return {
             "tenant_id": entry["tenant_id"],
             "client_id": entry["application_id"],
@@ -121,7 +120,17 @@ def send_mail(token, sender, subject, recipients, content_type, content):
 def mk_parser():
     """ commandline parser """
     description = "no description given"
+    default_cfg = str(Path.home() / ".config" / "msgmta.json")
+    default_cfg = os.environ.get("MSGMTA_CONFIG", default_cfg)
+    CONFIG_FILE = Path("secrets.json")
+
     parser = argparse.ArgumentParser(description=description)
+    parser.add_argument(
+        '--config',
+        '-c',
+        default=default_cfg,
+        help="config file to read from: default=%(default)s",
+    )
     parser.add_argument('--subject', '-s', default="no subject")
     parser.add_argument('recipients', nargs='*')
     return parser
