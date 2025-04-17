@@ -224,9 +224,9 @@ def main():
     options = mk_parser().parse_args()
     VERBOSE = options.verbose
     debug = options.debug
-    print(f"{options.debug_path}")
     if debug_path := options.debug_path:
         debug_path = Path(options.debug_path)
+    vprint(f"{debug_path=}")
 
     raw_email = sys.stdin.read()
     if debug:
