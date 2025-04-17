@@ -231,7 +231,7 @@ def main():
     if debug:
         debug_path.mkdir(mode=0o700, parents=True, exist_ok=True)
         now = datetime.now().isoformat(timespec="seconds")
-        raw_path = Path(f"{now}.raw")
+        raw_path = debug_path / "{now}.raw"
         ctr = 0
         while raw_path.exists():
             ctr += 1
