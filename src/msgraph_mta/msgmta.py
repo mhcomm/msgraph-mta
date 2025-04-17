@@ -214,6 +214,7 @@ def mk_parser():
         help="path where to store debug data",
     )
     parser.add_argument('--subject', '-s', default="no subject")
+    parser.add_argument('--from', '-f')
     parser.add_argument('recipients', nargs='*')
     return parser
 
