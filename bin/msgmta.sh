@@ -6,6 +6,7 @@
 
 
 mydir=$(unset cd ; cd $(dirname $0) ; pwd)
+bd=$(cd "$mydir" ; cd .. || true ; pwd)
 
 show_help() {
     cat << eot
@@ -22,7 +23,6 @@ options:
 eot
 }
 
-bd=$(cd $(dirname $0) ; pwd)
 
 # replace with 'standard' argument parser if any other switch will be added
 if [[ $1 == "-h" || $1 == "--help" ]] ; then
