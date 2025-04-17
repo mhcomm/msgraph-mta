@@ -20,6 +20,7 @@ import logging
 import os
 import sys
 
+from datetime import datetime
 from pathlib import Path
 
 import requests
@@ -27,7 +28,6 @@ import requests
 from msal import ConfidentialClientApplication
 
 logger = logging.getLogger(__name__)
-# CONFIG_FILE = Path.home() / ".msgraph-sendmail.json"
 GRAPH_ENDPOINT = "https://graph.microsoft.com/v1.0"
 SCOPES = ["https://graph.microsoft.com/.default"]
 VERBOSE = False
@@ -43,7 +43,14 @@ def vprint(*args, **kwargs):
 
 
 def load_config(configfile):
+    """
+    loads confing fron a json file
+    Multiple sender profiles could be in the json file
+    but currently only the "default" profile is taken
+    """
     cfg_path = Path(configfile)
+    # TODO: could refuse (similar to ssh) reading the
+    # TODO: file if group or otherts can read the file
     with cfg_path.open() as fin:
         data = json.load(fin)
         entry = data["default"]
@@ -56,6 +63,9 @@ def load_config(configfile):
 
 
 def get_access_token(config):
+    """
+    request and return an access token.
+    """
     app = ConfidentialClientApplication(
         config["client_id"],
         authority=f"https://login.microsoftonline.com/{config['tenant_id']}",
@@ -69,6 +79,10 @@ def get_access_token(config):
 
 
 def fmt_recipients(recipients):
+    """
+    convert a list of recipient emails into a list
+    of dict required for MSGraph
+    """
     return [
         {"emailAddress": {"address": addr.strip()}}
         for addr in recipients
@@ -76,6 +90,9 @@ def fmt_recipients(recipients):
 
 
 def parse_email_message(raw_data):
+    """
+    parse incoming message and extract headers
+    """
     msg = email.message_from_string(raw_data)
 
     to_addrs = msg.get_all("To", [])
@@ -83,13 +100,18 @@ def parse_email_message(raw_data):
     bcc_addrs = msg.get_all("Bcc", [])
     assert not bcc_addrs, "must implement bcc handling"
 
-    # Microsoft Graph does not support BCC directly
+    # ChatGpt said that: Microsoft Graph does not support BCC directly
     # — skip it or handle differently
+    # TODO: Check if true and handle in forloop
 
-    recipients = fmt_recipients(to_addrs + cc_addrs)
+    parsed = {
+        "to": fmt_recipients(to_addrs),
+        "cc": fmt_recipients(cc_addrs),
+        "bcc": fmt_recipients(bcc_addrs),
+        "subject":  msg.get("Subject", ""),
+        "content_type": "text/plain",
+    }
 
-    subject = msg.get("Subject", "")
-    content_type = "text/plain"
     content = ""
 
     if msg.is_multipart():
@@ -106,10 +128,15 @@ def parse_email_message(raw_data):
             .decode(msg.get_content_charset("utf-8"))
         )
 
-    return subject, recipients, content_type, content
+    parsed["content"] = content
+
+    return parsed
 
 
-def send_mail(token, sender, subject, recipients, content_type, content):
+def send_mail(token, sender, parsed):
+    """
+    send mail via MSGraph
+    """
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json"
@@ -117,12 +144,13 @@ def send_mail(token, sender, subject, recipients, content_type, content):
 
     data = {
         "message": {
-            "subject": subject,
+            "subject": parsed['subject'],
             "body": {
                 "contentType": "Text",
-                "content": content
+                "content": parsed['content']
             },
-            "toRecipients": recipients,
+            "toRecipients": parsed['to'],
+            "ccRecipients": parsed['cc'],
             "from": {
                 "emailAddress": {"address": sender}
             }
@@ -144,10 +172,17 @@ def send_mail(token, sender, subject, recipients, content_type, content):
 
 
 def mk_parser():
-    """ commandline parser """
+    """
+    commandline parser
+    """
     description = "no description given"
     default_cfg = str(Path.home() / ".config" / "msgmta.json")
     default_cfg = os.environ.get("MSGMTA_CONFIG", default_cfg)
+    default_debug_enabled = (
+        os.environ.get("MSGMTA_DEBUG", "false")[:1].lower()
+        in ("1", "t", "y")
+    )
+    default_debug_path = os.environ.get("MSGMTA_DEBUG_PATH", ".")
 
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument(
@@ -162,6 +197,22 @@ def mk_parser():
         action="store_true",
         help="be a little more verbose",
     )
+    parser.add_argument(
+        '--debug',
+        '-d',
+        action="store_true",
+        default=default_debug_enabled,
+        help=(
+            "store debug data (can also be"
+            + " activated with MSGMTA_DEBUG=true)"
+        ),
+    )
+    parser.add_argument(
+        '--debug-path',
+        '-D',
+        default=default_debug_path,
+        help="path where to store debug data",
+    )
     parser.add_argument('--subject', '-s', default="no subject")
     parser.add_argument('recipients', nargs='*')
     return parser
@@ -171,33 +222,54 @@ def main():
     global VERBOSE
     options = mk_parser().parse_args()
     VERBOSE = options.verbose
+    debug = options.debug
+    print(f"{options.debug_path}")
+    if debug_path := options.debug_path:
+        debug_path = Path(options.debug_path)
 
     raw_email = sys.stdin.read()
+    if debug:
+        debug_path.mkdir(mode=0o700, parents=True, exist_ok=True)
+        now = datetime.now().isoformat(timespec="seconds")
+        raw_path = Path(f"{now}.raw")
+        ctr = 0
+        while raw_path.exists():
+            ctr += 1
+            raw_path = Path(f"{now}_{ctr}.raw")
+        with raw_path.open("w") as fout:
+            fout.write(raw_email)
+
     cfg_path = Path(options.config)
     config = load_config(cfg_path)
+    sender = config["from_address"]
     token = get_access_token(config)
 
-    subject, recipients, content_type, content = parse_email_message(raw_email)
-    vprint(f"parsed: {(subject, recipients, content_type, content)}")
+    parsed = parse_email_message(raw_email)
 
-    recipients = recipients or []
-    recipients.extend(fmt_recipients(options.recipients))
-    subject = subject or options.subject
-    vprint(f"{recipients=}")
-    vprint(f"{subject=}")
+    vprint(
+        f"parsed: {parsed['subject']}, "
+        + f"{parsed['to']}, {parsed['cc']}, {parsed['bcc']}, "
+        + f"{parsed['content_type']}, {parsed['content']}"
+    )
 
-    if not recipients:
+    parsed['to'] = parsed['to'] or []
+    parsed['to'].extend(fmt_recipients(options.recipients))
+    parsed['subject'] = parsed['subject'] or options.subject
+    vprint(f"{parsed['to']=}")
+    vprint(f"{parsed['cc']=}")
+    vprint(f"{parsed['bcc']=}")
+    vprint(f"{parsed['subject']=}")
+    if debug:
+        with raw_path.with_suffix(".tkn").open("w") as fout:
+            fout.write(token)
+        with raw_path.with_suffix(".json").open("w") as fout:
+            json.dump(parsed, fout, indent=1)
+
+    if not parsed['to']:
         logger.error("No recipients found in email headers")
         sys.exit(1)
 
-    send_mail(
-        token,
-        sender=config["from_address"],
-        subject=subject,
-        recipients=recipients,
-        content_type=content_type,
-        content=content
-    )
+    send_mail(token, sender, parsed)
 
 
 if __name__ == '__main__':
