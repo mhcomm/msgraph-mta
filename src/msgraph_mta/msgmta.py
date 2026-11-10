@@ -44,13 +44,13 @@ def vprint(*args, **kwargs):
 
 def load_config(configfile):
     """
-    loads confing fron a json file
+    loads config fron a json file
     Multiple sender profiles could be in the json file
     but currently only the "default" profile is taken
     """
     cfg_path = Path(configfile)
     # TODO: could refuse (similar to ssh) reading the
-    # TODO: file if group or otherts can read the file
+    # TODO: file if group or others can read the file
     with cfg_path.open() as fin:
         data = json.load(fin)
         entry = data["default"]
@@ -81,7 +81,7 @@ def get_access_token(config):
 def fmt_recipients(recipients):
     """
     convert a list of recipient emails into a list
-    of dict required for MSGraph
+    of dicts required for MSGraph
     """
     return [
         {"emailAddress": {"address": addr.strip()}}
