@@ -21,6 +21,8 @@ msgmta = "msgraph_mta.msgmta:main"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.5"
+flake8 = ">=7.0"
+pytest-cov = ">=5.0"
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
