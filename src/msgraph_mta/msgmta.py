@@ -32,6 +32,8 @@ from msal import ConfidentialClientApplication
 logger = logging.getLogger(__name__)
 GRAPH_ENDPOINT = "https://graph.microsoft.com/v1.0"
 SCOPES = ["https://graph.microsoft.com/.default"]
+# max time in seconds to wait for an answer of a server
+REQUEST_TIMEOUT = 30
 VERBOSE = False
 
 
@@ -116,7 +118,8 @@ def get_access_token(config):
     app = ConfidentialClientApplication(
         config["client_id"],
         authority=f"https://login.microsoftonline.com/{config['tenant_id']}",
-        client_credential=config["client_secret"]
+        client_credential=config["client_secret"],
+        timeout=REQUEST_TIMEOUT,
     )
 
     result = app.acquire_token_for_client(scopes=SCOPES)
@@ -225,7 +228,8 @@ def send_mail(token, sender, parsed):
     response = requests.post(
         f"{GRAPH_ENDPOINT}/users/{sender}/sendMail",
         headers=headers,
-        json=data
+        json=data,
+        timeout=REQUEST_TIMEOUT,
     )
 
     if not response.ok:

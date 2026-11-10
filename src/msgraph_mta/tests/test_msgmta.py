@@ -199,3 +199,22 @@ def test_bcc_recipients():
     assert addrs(message["ccRecipients"]) == ["c@x.org"]
     assert addrs(message["bccRecipients"]) == ["b@x.org"]
     assert "b@x.org" not in message["body"]["content"]
+
+
+def test_requests_have_a_timeout():
+    """
+    neither the token request nor the send request can hang forever
+    """
+    mod = msgraph_mta.msgmta
+    parsed = {"subject": "hi", "content": "body", "to": [], "cc": [], "bcc": []}
+    with patch.object(mod.requests, "post") as post:
+        mod.send_mail("tkn", "s@x.org", parsed)
+    assert post.call_args.kwargs["timeout"] == mod.REQUEST_TIMEOUT
+
+    config = {"client_id": "app", "tenant_id": "tenant", "client_secret": "s"}
+    with patch.object(mod, "ConfidentialClientApplication") as app_cls:
+        app_cls.return_value.acquire_token_for_client.return_value = {
+            "access_token": "tkn",
+        }
+        assert mod.get_access_token(config) == "tkn"
+    assert app_cls.call_args.kwargs["timeout"] == mod.REQUEST_TIMEOUT
