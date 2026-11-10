@@ -206,7 +206,9 @@ def test_requests_have_a_timeout():
     neither the token request nor the send request can hang forever
     """
     mod = msgraph_mta.msgmta
-    parsed = {"subject": "hi", "content": "body", "to": [], "cc": [], "bcc": []}
+    parsed = {
+        "subject": "hi", "content": "body", "to": [], "cc": [], "bcc": [],
+    }
     with patch.object(mod.requests, "post") as post:
         mod.send_mail("tkn", "s@x.org", parsed)
     assert post.call_args.kwargs["timeout"] == mod.REQUEST_TIMEOUT
@@ -244,7 +246,9 @@ def test_send_error_is_short():
     a failing send request reports code and message of the error only
     """
     mod = msgraph_mta.msgmta
-    parsed = {"subject": "hi", "content": "body", "to": [], "cc": [], "bcc": []}
+    parsed = {
+        "subject": "hi", "content": "body", "to": [], "cc": [], "bcc": [],
+    }
     with patch.object(mod.requests, "post") as post:
         response = post.return_value
         response.ok = False
