@@ -18,6 +18,7 @@ import email
 import json
 import logging
 import os
+import stat
 import sys
 
 from datetime import datetime
@@ -82,14 +83,22 @@ def save_raw_email(debug_path, raw_email):
 
 def load_config(configfile):
     """
-    loads config fron a json file
+    loads config from a json file
     Multiple sender profiles could be in the json file
     but currently only the "default" profile is taken
     """
     cfg_path = Path(configfile)
-    # TODO: could refuse (similar to ssh) reading the
-    # TODO: file if group or others can read the file
     with cfg_path.open() as fin:
+        # The file contains a secret. Refuse it (similar to ssh) if
+        # everybody can read or modify it.
+        # Access for the group is tolerated (see MSGMTA_GROUP in msgmta.sh)
+        mode = os.fstat(fin.fileno()).st_mode
+        if mode & (stat.S_IROTH | stat.S_IWOTH):
+            raise PermissionError(
+                f"permissions {stat.S_IMODE(mode):04o} of {cfg_path} are too"
+                " open: the file must not be accessible by others"
+                f" (fix with: chmod o-rwx {cfg_path})"
+            )
         data = json.load(fin)
         entry = data["default"]
         return {

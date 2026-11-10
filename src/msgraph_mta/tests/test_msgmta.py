@@ -1,3 +1,4 @@
+import json
 import sys
 
 from datetime import datetime
@@ -140,3 +141,43 @@ def test_save_raw_email_collision(tmp_path):
     for idx, path in enumerate(paths):
         assert path.parent == debug_path
         assert path.read_text() == f"mail {idx}"
+
+
+def mk_config(tmp_path, mode):
+    """
+    create a config file with the given permissions
+    """
+    cfg_path = tmp_path / "msgmta.json"
+    cfg_path.write_text(json.dumps({
+        "default": {
+            "tenant_id": "tenant",
+            "application_id": "app",
+            "secret_value": "secret",
+            "sender": "s@x.org",
+        }
+    }))
+    cfg_path.chmod(mode)
+    return cfg_path
+
+
+@pytest.mark.parametrize("mode", [0o600, 0o640, 0o400])
+def test_load_config(tmp_path, mode):
+    """
+    a config file, that others cannot access is accepted
+    """
+    config = msgraph_mta.msgmta.load_config(mk_config(tmp_path, mode))
+    assert config == {
+        "tenant_id": "tenant",
+        "client_id": "app",
+        "client_secret": "secret",
+        "from_address": "s@x.org",
+    }
+
+
+@pytest.mark.parametrize("mode", [0o644, 0o604, 0o602, 0o666])
+def test_load_config_refuses_open_permissions(tmp_path, mode):
+    """
+    a config file, that others can read or write is refused
+    """
+    with pytest.raises(PermissionError):
+        msgraph_mta.msgmta.load_config(mk_config(tmp_path, mode))
