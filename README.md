@@ -1,2 +1,2 @@
 # msgraph-mta
-an simple mta sending mails via MSGraph
+A simple mta sending mails via MSGraph
