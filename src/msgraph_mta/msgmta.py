@@ -21,6 +21,7 @@ import os
 import sys
 
 from datetime import datetime
+from email.utils import getaddresses
 from pathlib import Path
 
 import requests
@@ -82,11 +83,32 @@ def fmt_recipients(recipients):
     """
     convert a list of recipient emails into a list
     of dicts required for MSGraph
+
+    Each entry may be a bare address, a "Name <addr>" form or a
+    comma separated list of these (as found in mail headers).
     """
     return [
         {"emailAddress": {"address": addr.strip()}}
-        for addr in recipients
+        for _name, addr in getaddresses(recipients)
+        if addr.strip()
     ]
+
+
+def deduplicate(recipients):
+    """
+    remove duplicate addresses from a list of recipients
+    (as returned by fmt_recipients)
+
+    The comparison is case insensitive, the first occurrence is kept.
+    """
+    seen = set()
+    result = []
+    for recipient in recipients:
+        key = recipient["emailAddress"]["address"].lower()
+        if key not in seen:
+            seen.add(key)
+            result.append(recipient)
+    return result
 
 
 def parse_email_message(raw_data):
@@ -255,6 +277,8 @@ def main():
 
     parsed['to'] = parsed['to'] or []
     parsed['to'].extend(fmt_recipients(options.recipients))
+    for field in ("to", "cc", "bcc"):
+        parsed[field] = deduplicate(parsed[field])
     parsed['subject'] = parsed['subject'] or options.subject
     vprint(f"{parsed['to']=}")
     vprint(f"{parsed['cc']=}")
