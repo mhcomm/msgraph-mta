@@ -1,5 +1,6 @@
 import sys
 
+from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch
 
@@ -116,3 +117,26 @@ def test_debug_files(tmp_path):
     for path in files:
         assert path.stat().st_mode & 0o777 == 0o600
         assert "s3cr3t" not in path.read_text()
+
+
+def test_save_raw_email_collision(tmp_path):
+    """
+    mails saved within the same second end up in different files,
+    which are all located in the debug directory
+    """
+    mod = msgraph_mta.msgmta
+    debug_path = tmp_path / "debug"
+    with patch.object(mod, "datetime") as mock_datetime:
+        mock_datetime.now.return_value = datetime(2026, 1, 2, 3, 4, 5)
+        paths = [
+            mod.save_raw_email(debug_path, f"mail {idx}")
+            for idx in range(3)
+        ]
+    assert [path.name for path in paths] == [
+        "2026-01-02T03:04:05.raw",
+        "2026-01-02T03:04:05_1.raw",
+        "2026-01-02T03:04:05_2.raw",
+    ]
+    for idx, path in enumerate(paths):
+        assert path.parent == debug_path
+        assert path.read_text() == f"mail {idx}"

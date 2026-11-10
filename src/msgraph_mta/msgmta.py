@@ -54,6 +54,32 @@ def create_private(path):
     return os.fdopen(os.open(path, flags, 0o600), "w")
 
 
+def save_raw_email(debug_path, raw_email):
+    """
+    save the raw mail in a new file below debug_path
+    and return the path of this file.
+
+    The file name is derived from the current time. A counter is appended
+    if a file with this name exists already.
+    """
+    debug_path.mkdir(mode=0o700, parents=True, exist_ok=True)
+    now = datetime.now().isoformat(timespec="seconds")
+    raw_path = debug_path / f"{now}.raw"
+    ctr = 0
+    while True:
+        try:
+            # creating and checking for existence in one step avoids, that
+            # two processes started at the same time use the same file
+            fout = create_private(raw_path)
+        except FileExistsError:
+            ctr += 1
+            raw_path = debug_path / f"{now}_{ctr}.raw"
+            continue
+        with fout:
+            fout.write(raw_email)
+        return raw_path
+
+
 def load_config(configfile):
     """
     loads config fron a json file
@@ -263,15 +289,7 @@ def main():
 
     raw_email = sys.stdin.read()
     if debug:
-        debug_path.mkdir(mode=0o700, parents=True, exist_ok=True)
-        now = datetime.now().isoformat(timespec="seconds")
-        raw_path = debug_path / f"{now}.raw"
-        ctr = 0
-        while raw_path.exists():
-            ctr += 1
-            raw_path = Path(f"{now}_{ctr}.raw")
-        with create_private(raw_path) as fout:
-            fout.write(raw_email)
+        raw_path = save_raw_email(debug_path, raw_email)
 
     cfg_path = Path(options.config)
     config = load_config(cfg_path)
