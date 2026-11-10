@@ -18,6 +18,7 @@ import email
 import json
 import logging
 import os
+import stat
 import sys
 
 from datetime import datetime
@@ -31,6 +32,8 @@ from msal import ConfidentialClientApplication
 logger = logging.getLogger(__name__)
 GRAPH_ENDPOINT = "https://graph.microsoft.com/v1.0"
 SCOPES = ["https://graph.microsoft.com/.default"]
+# max time in seconds to wait for an answer of a server
+REQUEST_TIMEOUT = 30
 VERBOSE = False
 
 
@@ -43,16 +46,61 @@ def vprint(*args, **kwargs):
     print(*args, **kwargs)
 
 
+def create_private(path):
+    """
+    create a new file, that only the owner can read or write
+    and return it opened for writing.
+
+    raises FileExistsError if the file exists already (symlinks included)
+    """
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    return os.fdopen(os.open(path, flags, 0o600), "w")
+
+
+def save_raw_email(debug_path, raw_email):
+    """
+    save the raw mail in a new file below debug_path
+    and return the path of this file.
+
+    The file name is derived from the current time. A counter is appended
+    if a file with this name exists already.
+    """
+    debug_path.mkdir(mode=0o700, parents=True, exist_ok=True)
+    now = datetime.now().isoformat(timespec="seconds")
+    raw_path = debug_path / f"{now}.raw"
+    ctr = 0
+    while True:
+        try:
+            # creating and checking for existence in one step avoids, that
+            # two processes started at the same time use the same file
+            fout = create_private(raw_path)
+        except FileExistsError:
+            ctr += 1
+            raw_path = debug_path / f"{now}_{ctr}.raw"
+            continue
+        with fout:
+            fout.write(raw_email)
+        return raw_path
+
+
 def load_config(configfile):
     """
-    loads config fron a json file
+    loads config from a json file
     Multiple sender profiles could be in the json file
     but currently only the "default" profile is taken
     """
     cfg_path = Path(configfile)
-    # TODO: could refuse (similar to ssh) reading the
-    # TODO: file if group or others can read the file
     with cfg_path.open() as fin:
+        # The file contains a secret. Refuse it (similar to ssh) if
+        # everybody can read or modify it.
+        # Access for the group is tolerated (see MSGMTA_GROUP in msgmta.sh)
+        mode = os.fstat(fin.fileno()).st_mode
+        if mode & (stat.S_IROTH | stat.S_IWOTH):
+            raise PermissionError(
+                f"permissions {stat.S_IMODE(mode):04o} of {cfg_path} are too"
+                " open: the file must not be accessible by others"
+                f" (fix with: chmod o-rwx {cfg_path})"
+            )
         data = json.load(fin)
         entry = data["default"]
         return {
@@ -70,13 +118,30 @@ def get_access_token(config):
     app = ConfidentialClientApplication(
         config["client_id"],
         authority=f"https://login.microsoftonline.com/{config['tenant_id']}",
-        client_credential=config["client_secret"]
+        client_credential=config["client_secret"],
+        timeout=REQUEST_TIMEOUT,
     )
 
     result = app.acquire_token_for_client(scopes=SCOPES)
     if "access_token" not in result:
-        raise Exception(f"Could not obtain token: {result}")
+        # do not dump the whole answer, it might end up in logs or mails
+        raise Exception(
+            "Could not obtain token: "
+            f"{result.get('error')}: {result.get('error_description')}"
+        )
     return result["access_token"]
+
+
+def graph_error(response):
+    """
+    return a short description (code and message) of a failed
+    MSGraph request instead of the complete response body
+    """
+    try:
+        error = response.json()["error"]
+        return f"{error['code']}: {error['message']}"
+    except (ValueError, KeyError, TypeError):
+        return str(response.reason)
 
 
 def fmt_recipients(recipients):
@@ -120,11 +185,6 @@ def parse_email_message(raw_data):
     to_addrs = msg.get_all("To", [])
     cc_addrs = msg.get_all("Cc", [])
     bcc_addrs = msg.get_all("Bcc", [])
-    assert not bcc_addrs, "must implement bcc handling"
-
-    # ChatGpt said that: Microsoft Graph does not support BCC directly
-    # — skip it or handle differently
-    # TODO: Check if true and handle in forloop
 
     parsed = {
         "to": fmt_recipients(to_addrs),
@@ -173,6 +233,7 @@ def send_mail(token, sender, parsed):
             },
             "toRecipients": parsed['to'],
             "ccRecipients": parsed['cc'],
+            "bccRecipients": parsed['bcc'],
             "from": {
                 "emailAddress": {"address": sender}
             }
@@ -183,12 +244,15 @@ def send_mail(token, sender, parsed):
     response = requests.post(
         f"{GRAPH_ENDPOINT}/users/{sender}/sendMail",
         headers=headers,
-        json=data
+        json=data,
+        timeout=REQUEST_TIMEOUT,
     )
 
     if not response.ok:
         raise Exception(
-            f"Graph sendMail failed: {response.status_code} {response.text}")
+            "Graph sendMail failed: "
+            f"{response.status_code} {graph_error(response)}"
+        )
 
     logger.info("Message sent successfully")
 
@@ -252,15 +316,7 @@ def main():
 
     raw_email = sys.stdin.read()
     if debug:
-        debug_path.mkdir(mode=0o700, parents=True, exist_ok=True)
-        now = datetime.now().isoformat(timespec="seconds")
-        raw_path = debug_path / f"{now}.raw"
-        ctr = 0
-        while raw_path.exists():
-            ctr += 1
-            raw_path = Path(f"{now}_{ctr}.raw")
-        with raw_path.open("w") as fout:
-            fout.write(raw_email)
+        raw_path = save_raw_email(debug_path, raw_email)
 
     cfg_path = Path(options.config)
     config = load_config(cfg_path)
@@ -285,9 +341,7 @@ def main():
     vprint(f"{parsed['bcc']=}")
     vprint(f"{parsed['subject']=}")
     if debug:
-        with raw_path.with_suffix(".tkn").open("w") as fout:
-            fout.write(token)
-        with raw_path.with_suffix(".json").open("w") as fout:
+        with create_private(raw_path.with_suffix(".json")) as fout:
             json.dump(parsed, fout, indent=1)
 
     if not parsed['to']:

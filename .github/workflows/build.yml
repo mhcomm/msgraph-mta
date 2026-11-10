@@ -6,6 +6,10 @@ on:
   schedule:
     - cron: "17 1 * * 0" # weekly
 
+# the jobs only need to read the repository
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -13,45 +17,40 @@ jobs:
       matrix:
         python-version: ["3.10", "3.11", "3.12"]
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
 
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
       with:
         python-version: ${{ matrix.python-version }}
 
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install flake8 pytest
-        if [[ ${{ matrix.python-version }} == '3.10' ]]; then
-          pip install pytest-cov coverage
-        fi
+        pip install poetry==2.5.1
+        # installs the versions pinned in poetry.lock
+        poetry install
 
     - name: Lint with flake8
       run: |
         # stop the build if there are Python syntax errors or undefined names
-        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+        poetry run flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
         # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
-        flake8 . --count --exit-zero --max-line-length=127 --statistics
+        poetry run flake8 . --count --exit-zero --max-line-length=127 --statistics
 
     - name: Test with pytest
       run: |
-        pip install -e .
         if [[ ${{ matrix.python-version }} == '3.10' ]]; then
-          pytest --cov=. --cov-report=xml
+          poetry run pytest --cov=. --cov-report=xml
         else
-          pytest
+          poetry run pytest
         fi
 
     - name: Upload coverage to Codecov
       if: ${{ matrix.python-version == '3.10' }}
-      uses: codecov/codecov-action@v4
+      uses: codecov/codecov-action@b9fd7d16f6d7d1b5d2bec1a2887e65ceed900238  # v4.6.0
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
         file: ./coverage.xml
         flags: unittests
         name: python-${{ matrix.python-version }}
-
-
-
