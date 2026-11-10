@@ -181,3 +181,21 @@ def test_load_config_refuses_open_permissions(tmp_path, mode):
     """
     with pytest.raises(PermissionError):
         msgraph_mta.msgmta.load_config(mk_config(tmp_path, mode))
+
+
+def test_bcc_recipients():
+    """
+    Bcc recipients are passed to MSGraph in their own field
+    """
+    mod = msgraph_mta.msgmta
+    raw = "To: a@x.org\nCc: c@x.org\nBcc: b@x.org, B@x.org\n\nbody\n"
+    parsed = run_main([], raw).call_args.args[2]
+    assert addrs(parsed["bcc"]) == ["b@x.org"]
+
+    with patch.object(mod.requests, "post") as post:
+        mod.send_mail("tkn", "s@x.org", parsed)
+    message = post.call_args.kwargs["json"]["message"]
+    assert addrs(message["toRecipients"]) == ["a@x.org"]
+    assert addrs(message["ccRecipients"]) == ["c@x.org"]
+    assert addrs(message["bccRecipients"]) == ["b@x.org"]
+    assert "b@x.org" not in message["body"]["content"]

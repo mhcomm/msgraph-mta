@@ -166,11 +166,6 @@ def parse_email_message(raw_data):
     to_addrs = msg.get_all("To", [])
     cc_addrs = msg.get_all("Cc", [])
     bcc_addrs = msg.get_all("Bcc", [])
-    assert not bcc_addrs, "must implement bcc handling"
-
-    # ChatGpt said that: Microsoft Graph does not support BCC directly
-    # — skip it or handle differently
-    # TODO: Check if true and handle in forloop
 
     parsed = {
         "to": fmt_recipients(to_addrs),
@@ -219,6 +214,7 @@ def send_mail(token, sender, parsed):
             },
             "toRecipients": parsed['to'],
             "ccRecipients": parsed['cc'],
+            "bccRecipients": parsed['bcc'],
             "from": {
                 "emailAddress": {"address": sender}
             }
