@@ -43,6 +43,17 @@ def vprint(*args, **kwargs):
     print(*args, **kwargs)
 
 
+def create_private(path):
+    """
+    create a new file, that only the owner can read or write
+    and return it opened for writing.
+
+    raises FileExistsError if the file exists already (symlinks included)
+    """
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    return os.fdopen(os.open(path, flags, 0o600), "w")
+
+
 def load_config(configfile):
     """
     loads config fron a json file
@@ -259,7 +270,7 @@ def main():
         while raw_path.exists():
             ctr += 1
             raw_path = Path(f"{now}_{ctr}.raw")
-        with raw_path.open("w") as fout:
+        with create_private(raw_path) as fout:
             fout.write(raw_email)
 
     cfg_path = Path(options.config)
@@ -285,9 +296,7 @@ def main():
     vprint(f"{parsed['bcc']=}")
     vprint(f"{parsed['subject']=}")
     if debug:
-        with raw_path.with_suffix(".tkn").open("w") as fout:
-            fout.write(token)
-        with raw_path.with_suffix(".json").open("w") as fout:
+        with create_private(raw_path.with_suffix(".json")) as fout:
             json.dump(parsed, fout, indent=1)
 
     if not parsed['to']:

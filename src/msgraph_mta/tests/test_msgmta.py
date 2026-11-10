@@ -73,3 +73,46 @@ def test_main_dedups_recipients():
     parsed = send_mail.call_args.args[2]
     assert addrs(parsed["to"]) == ["a@x.org", "d@x.org"]
     assert addrs(parsed["cc"]) == ["c@x.org"]
+
+
+def run_main(args, raw):
+    """
+    run main with the given args and the given mail on stdin
+    without contacting any server.
+    returns the mock replacing send_mail
+    """
+    mod = msgraph_mta.msgmta
+    cfg = {"from_address": "s@x.org"}
+    with patch.object(sys, "argv", mk_args(*args)), \
+            patch.object(sys.stdin, "read", return_value=raw), \
+            patch.object(mod, "load_config", return_value=cfg), \
+            patch.object(mod, "get_access_token", return_value="s3cr3t"), \
+            patch.object(mod, "send_mail") as send_mail:
+        mod.main()
+    return send_mail
+
+
+def test_create_private(tmp_path):
+    """
+    files are created for the owner only and never overwritten
+    """
+    path = tmp_path / "private.txt"
+    with msgraph_mta.msgmta.create_private(path) as fout:
+        fout.write("data")
+    assert path.read_text() == "data"
+    assert path.stat().st_mode & 0o777 == 0o600
+    with pytest.raises(FileExistsError):
+        msgraph_mta.msgmta.create_private(path)
+
+
+def test_debug_files(tmp_path):
+    """
+    debug files are private and do not contain the access token
+    """
+    raw = "To: a@x.org\nSubject: hi\n\nbody\n"
+    run_main(["--debug", "--debug-path", str(tmp_path)], raw)
+    files = sorted(tmp_path.iterdir())
+    assert [path.suffix for path in files] == [".json", ".raw"]
+    for path in files:
+        assert path.stat().st_mode & 0o777 == 0o600
+        assert "s3cr3t" not in path.read_text()
