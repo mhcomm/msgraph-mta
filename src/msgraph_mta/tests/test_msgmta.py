@@ -218,3 +218,52 @@ def test_requests_have_a_timeout():
         }
         assert mod.get_access_token(config) == "tkn"
     assert app_cls.call_args.kwargs["timeout"] == mod.REQUEST_TIMEOUT
+
+
+def test_token_error_is_short():
+    """
+    a failing token request reports the error, but not the whole answer
+    """
+    mod = msgraph_mta.msgmta
+    config = {"client_id": "app", "tenant_id": "tenant", "client_secret": "s"}
+    result = {
+        "error": "invalid_client",
+        "error_description": "bad secret",
+        "correlation_id": "c0ffee",
+    }
+    with patch.object(mod, "ConfidentialClientApplication") as app_cls:
+        app_cls.return_value.acquire_token_for_client.return_value = result
+        with pytest.raises(Exception) as excinfo:
+            mod.get_access_token(config)
+    assert "invalid_client: bad secret" in str(excinfo.value)
+    assert "c0ffee" not in str(excinfo.value)
+
+
+def test_send_error_is_short():
+    """
+    a failing send request reports code and message of the error only
+    """
+    mod = msgraph_mta.msgmta
+    parsed = {"subject": "hi", "content": "body", "to": [], "cc": [], "bcc": []}
+    with patch.object(mod.requests, "post") as post:
+        response = post.return_value
+        response.ok = False
+        response.status_code = 403
+        response.json.return_value = {
+            "error": {
+                "code": "ErrorAccessDenied",
+                "message": "Access is denied.",
+                "innerError": {"request-id": "c0ffee"},
+            }
+        }
+        with pytest.raises(Exception) as excinfo:
+            mod.send_mail("tkn", "s@x.org", parsed)
+        assert "403 ErrorAccessDenied: Access is denied." in str(excinfo.value)
+        assert "c0ffee" not in str(excinfo.value)
+
+        # answer is not the expected json
+        response.json.side_effect = ValueError("no json")
+        response.reason = "Forbidden"
+        with pytest.raises(Exception) as excinfo:
+            mod.send_mail("tkn", "s@x.org", parsed)
+        assert "403 Forbidden" in str(excinfo.value)

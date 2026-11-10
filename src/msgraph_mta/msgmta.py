@@ -124,8 +124,24 @@ def get_access_token(config):
 
     result = app.acquire_token_for_client(scopes=SCOPES)
     if "access_token" not in result:
-        raise Exception(f"Could not obtain token: {result}")
+        # do not dump the whole answer, it might end up in logs or mails
+        raise Exception(
+            "Could not obtain token: "
+            f"{result.get('error')}: {result.get('error_description')}"
+        )
     return result["access_token"]
+
+
+def graph_error(response):
+    """
+    return a short description (code and message) of a failed
+    MSGraph request instead of the complete response body
+    """
+    try:
+        error = response.json()["error"]
+        return f"{error['code']}: {error['message']}"
+    except (ValueError, KeyError, TypeError):
+        return str(response.reason)
 
 
 def fmt_recipients(recipients):
@@ -234,7 +250,9 @@ def send_mail(token, sender, parsed):
 
     if not response.ok:
         raise Exception(
-            f"Graph sendMail failed: {response.status_code} {response.text}")
+            "Graph sendMail failed: "
+            f"{response.status_code} {graph_error(response)}"
+        )
 
     logger.info("Message sent successfully")
 
